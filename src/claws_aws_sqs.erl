@@ -52,7 +52,8 @@ start_link(ServerName, AwsConfig, MaxNumberOfMessages, PollInterval, QueueNames,
 init([QueueName]) ->
     AwsConfig =
         try erlcloud_aws:auto_config() of
-            {ok, Config} -> Config
+            {ok, Config} -> Config;
+            _ -> erlcloud_aws:default_config()
         catch _:_ ->
             erlcloud_aws:default_config()
         end,
