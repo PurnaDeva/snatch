@@ -154,10 +154,9 @@ process_body(Body) ->
     end.
 
 try_parse_json(Body, XMLParseError) ->
-    try
-        {ok, Packet} = jsone:decode(Body, []),
-        {ok, Packet}
-    catch
-        Error:Reason:Stacktrace ->
-            {error, {parsing_failed, [{xml_error, XMLParseError}, {json_error, {Error, Reason, Stacktrace}}]}}
+    case jsone:try_decode(Body, []) of 
+        {ok, Packet} ->
+            {ok, Packet};
+        {error, {Reason, Stacktrace}} ->
+            {error, {parsing_failed, [{xml_error, XMLParseError}, {json_error, {Reason, Stacktrace}}]}}    
     end.
