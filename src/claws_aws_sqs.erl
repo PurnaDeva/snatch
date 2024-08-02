@@ -131,6 +131,7 @@ send(Data, JID, ID) ->
 process_messages(MessageList, SqsModule, QueueName, AwsConfig) ->
     Messages = proplists:get_value(messages, MessageList, []),
     lists:foreach(fun(M) ->
+        error_logger:info_msg("SQS Received message RAW: ~p  from Queue: ~p ~n", [M, QueueName]),
         case process_body(list_to_binary(proplists:get_value(body, M))) of
             {ok, Packet, Via} ->
                 Receipt = proplists:get_value(receipt_handle, M),

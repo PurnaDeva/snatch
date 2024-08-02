@@ -17,7 +17,12 @@ init([PID]) when is_pid(PID) ->
       {noreply, pid() | atom()}.
 handle_info(Info, PID) ->
     io:format("Handle Info. PID: ~p. Info:~p~n", [PID, Info]),
-    PID ! Info,
+    
+    case is_pid(PID) of
+        true -> PID ! Info;
+        false -> io:format("Error: ~p is not a valid PID.~n", [PID])
+    end,
+    
     {noreply, PID}.
 
 -spec terminate(Reason :: any(), pid() | atom()) -> ok.
