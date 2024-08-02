@@ -22,7 +22,15 @@ handle_info(Info, PID) ->
     
     case is_pid(PID) of
         true -> PID ! Info;
-        false -> error_logger:error_msg("Error: ~p is not a valid PID.~n", [PID])
+        false ->
+            case whereis(PID) of
+                undefined ->
+                    error_logger:error_msg("Error: ~p is not a valid PID.~n", [PID]);
+                LocatedPID when is_pid(LocatedPID) ->
+                    LocatedPID ! Info;
+                _ ->
+                    error_logger:error_msg("Error: ~p is not a valid PID.~n", [PID])
+            end
     end,
     
     {noreply, PID}.
