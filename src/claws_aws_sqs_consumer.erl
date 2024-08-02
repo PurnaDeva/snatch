@@ -74,7 +74,6 @@ code_change(_OldVsn, State, _Extra) ->
 process_messages(MessageList, SqsModule, QueueName, AwsConfig) ->
     Messages = proplists:get_value(messages, MessageList, []),
     lists:foreach(fun(M) ->
-        error_logger:info_msg("SQS Received message RAW: ~p  from Queue: ~p ~n", [M, QueueName]),
         Body = to_bin(proplists:get_value(body, M, <<"{\"error\": \"Bodyless Message\"}">>)),
         Receipt = proplists:get_value(receipt_handle, M),
         snatch:received(Body, #via{claws = claws_aws_sqs, exchange = QueueName}),

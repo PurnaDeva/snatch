@@ -131,7 +131,6 @@ send(Data, JID, ID) ->
 process_messages(MessageList, SqsModule, QueueName, AwsConfig) ->
     Messages = proplists:get_value(messages, MessageList, []),
     lists:foreach(fun(M) ->
-        error_logger:info_msg("SQS Received message RAW: ~p from Queue: ~p ~n", [M, QueueName]),
         Body = list_to_binary(proplists:get_value(body, M, "")),
         error_logger:info_msg("SQS Received message Body: ~p from Queue: ~p ~n", [Body, QueueName]),
         case process_body(Body) of
@@ -141,7 +140,7 @@ process_messages(MessageList, SqsModule, QueueName, AwsConfig) ->
                 snatch:received(Packet, #via{claws = ?MODULE, exchange = SqsModule, jid = QueueName, id = MessageID}),
                 SqsModule:delete_message(QueueName, Receipt, AwsConfig);
             {error, Reason} ->
-                error_logger:error_msg("Failed to process message: ~p", [Reason])
+                error_logger:error_msg("Failed to process message: ~p ~p ~n", [Body, Reason])
         end
     end, Messages).
 
