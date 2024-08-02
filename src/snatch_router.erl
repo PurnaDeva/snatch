@@ -9,18 +9,20 @@
 init([undefined]) ->
     erlang:error(badarg);
 init([Name]) when is_atom(Name) ->
-    {ok, Name};
+    LocatedPID = whereis(Name).
+    error_logger:info_msg("Located PID: ~p from Name:~p~n", [LocatedPID, Name]),
+    {ok, LocatedPID};
 init([PID]) when is_pid(PID) ->
     {ok, PID}.
 
 -spec handle_info(Info :: term(), pid() | atom()) ->
       {noreply, pid() | atom()}.
 handle_info(Info, PID) ->
-    io:format("Handle Info. PID: ~p. Info:~p~n", [PID, Info]),
+    error_logger:info_msg("Handle Info. PID: ~p. Info:~p~n", [PID, Info]),
     
     case is_pid(PID) of
         true -> PID ! Info;
-        false -> io:format("Error: ~p is not a valid PID.~n", [PID])
+        false -> error_logger:error_msg("Error: ~p is not a valid PID.~n", [PID])
     end,
     
     {noreply, PID}.
