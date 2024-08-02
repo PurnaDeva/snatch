@@ -9,7 +9,7 @@
 init([undefined]) ->
     erlang:error(badarg);
 init([Name]) when is_atom(Name) ->
-    LocatedPID = whereis(Name).
+    LocatedPID = whereis(Name),
     error_logger:info_msg("Located PID: ~p from Name:~p~n", [LocatedPID, Name]),
     {ok, LocatedPID};
 init([PID]) when is_pid(PID) ->
