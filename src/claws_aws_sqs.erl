@@ -149,7 +149,7 @@ process_body(Body) ->
     case fxml_stream:parse_element(Body) of
         {error, Reason} ->
             try_parse_json(Body, Reason);
-        {ok, Packet} ->
+        Packet ->
             {ok, Packet}
     end.
 
