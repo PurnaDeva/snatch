@@ -16,6 +16,7 @@ init([PID]) when is_pid(PID) ->
 -spec handle_info(Info :: term(), pid() | atom()) ->
       {noreply, pid() | atom()}.
 handle_info(Info, PID) ->
+    io:format("Handle Info. PID: ~p. Info:~p~n", [PID, Info]),
     PID ! Info,
     {noreply, PID}.
 

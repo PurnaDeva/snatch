@@ -151,6 +151,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc Forward information to the handler via callback.
 %% @private
 forward(Module, Data, #state{substate = SubState} = State) ->
+    io:format("Forwarding data to module: ~p. Data: ~p. State: ~p~n", [Module, Data, State]),
     case Module:handle_info(Data, SubState) of
         {noreply, NewSubState} ->
             {noreply, State#state{substate = NewSubState}};
