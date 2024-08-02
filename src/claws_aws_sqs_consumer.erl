@@ -74,17 +74,17 @@ code_change(_OldVsn, State, _Extra) ->
 process_messages(MessageList, SqsModule, QueueName, AwsConfig) ->
     Messages = proplists:get_value(messages, MessageList, []),
     lists:foreach(fun(M) ->
-        {ok, Packet, Via} = process_body(list_to_binary(proplists:get_value(body, M))),
+        error_logger:info_msg("SQS Received message RAW: ~p  from Queue: ~p ~n", [M, QueueName]),
+        Body = to_bin(proplists:get_value(body, M, <<"{\"error\": \"Bodyless Message\"}">>)),
         Receipt = proplists:get_value(receipt_handle, M),
-        snatch:received(Packet, Via),
+        snatch:received(Body, #via{claws = claws_aws_sqs, exchange = QueueName}),
         SqsModule:delete_message(QueueName, Receipt, AwsConfig)
     end,
     Messages).
 
-process_body(Body) ->
-    case fxml_stream:parse_element(Body) of
-        {error, _Reason} ->
-            {error, xml_parsing_failed};
-        Packet ->
-            {ok, Packet, #via{claws = claws_aws_sqs}}
-    end.
+to_bin(Num) when is_integer(Num) -> integer_to_binary(Num);
+to_bin(Num) when is_float(Num) -> float_to_binary(Num, [{decimals, 4}, compact]);
+to_bin(Str) when is_list(Str) -> list_to_binary(Str);
+to_bin(Bin) when is_binary(Bin) -> Bin;
+to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
+to_bin(Map) when is_map(Map) -> jsone:encode(Map).
