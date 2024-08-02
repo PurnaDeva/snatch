@@ -133,9 +133,10 @@ process_messages(MessageList, SqsModule, QueueName, AwsConfig) ->
     lists:foreach(fun(M) ->
         error_logger:info_msg("SQS Received message RAW: ~p  from Queue: ~p ~n", [M, QueueName]),
         case process_body(list_to_binary(proplists:get_value(body, M))) of
-            {ok, Packet, Via} ->
+            {ok, Packet} ->
                 Receipt = proplists:get_value(receipt_handle, M),
-                snatch:received(Packet, Via),
+                MessageID = proplists:get_value(message_id, M),
+                snatch:received(Packet, #via{claws = ?MODULE, exchange = SqsModule, jid = QueueName, id = MessageID}),
                 SqsModule:delete_message(QueueName, Receipt, AwsConfig);
             {error, Reason} ->
                 error_logger:error_msg("Failed to process message: ~p", [Reason])
@@ -147,13 +148,13 @@ process_body(Body) ->
         {error, Reason} ->
             try_parse_json(Body, Reason);
         {ok, Packet} ->
-            {ok, Packet, #via{claws = ?MODULE}}
+            {ok, Packet}
     end.
 
 try_parse_json(Body, XMLParseError) ->
     try
-        {ok, Packet} = jsone:decode(Body, [return_maps]),
-        {ok, Packet, #via{claws = ?MODULE}}
+        {ok, Packet} = jsone:decode(Body, []),
+        {ok, Packet}
     catch
         Error:Reason:Stacktrace ->
             {error, {parsing_failed, [{xml_error, XMLParseError}, {json_error, {Error, Reason, Stacktrace}}]}}
