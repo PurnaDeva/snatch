@@ -86,7 +86,7 @@ handle_cast({send, QueueName, Message}, #state{aws_config = AwsConfig, sqs_modul
         [{message_id, _MessageId}, {md5_of_message_body, _Md5OfMessageBody}] ->
             {noreply, State};
         ErrorInfo ->
-            io:format("error in SQS send_message/3 => ~p~n", [ErrorInfo]),
+            lager:error("error in SQS send_message/3 => ~p", [ErrorInfo]),
             {stop, {sqs_send_failed, ErrorInfo}, State}
     end;
 
@@ -98,7 +98,7 @@ handle_cast({send, QueueName, Data, Attributes}, #state{aws_config = AwsConfig, 
         [{message_id, _MessageId}, {md5_of_message_body, _Md5OfMessageBody}] ->
             {noreply, State};
         ErrorInfo ->
-            io:format("error in SQS send_message/3 => ~p~n", [ErrorInfo]),
+            lager:error("error in SQS send_message/3 => ~p", [ErrorInfo]),
             {stop, {sqs_send_failed, ErrorInfo}, State}
     end;
 
@@ -132,7 +132,7 @@ process_messages(MessageList, SqsModule, QueueName, AwsConfig) ->
     Messages = proplists:get_value(messages, MessageList, []),
     lists:foreach(fun(M) ->
         Body = list_to_binary(proplists:get_value(body, M, "")),
-        error_logger:info_msg("SQS Received message Body: ~p from Queue: ~p ~n", [Body, QueueName]),
+        lager:debug("SQS Received message Body: ~p from Queue: ~p", [Body, QueueName]),
         case process_body(Body) of
             {ok, Packet} ->
                 Receipt = proplists:get_value(receipt_handle, M),
@@ -140,7 +140,7 @@ process_messages(MessageList, SqsModule, QueueName, AwsConfig) ->
                 snatch:received(Packet, #via{claws = ?MODULE, exchange = SqsModule, jid = QueueName, id = MessageID}),
                 SqsModule:delete_message(QueueName, Receipt, AwsConfig);
             {error, Reason} ->
-                error_logger:error_msg("Failed to process message: ~p ~p ~n", [Body, Reason])
+                lager:error("Failed to process message: ~p ~p", [Body, Reason])
         end
     end, Messages).
 

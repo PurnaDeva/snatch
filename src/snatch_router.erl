@@ -10,7 +10,7 @@ init([undefined]) ->
     erlang:error(badarg);
 init([Name]) when is_atom(Name) ->
     LocatedPID = whereis(Name),
-    error_logger:info_msg("Located PID: ~p from Name:~p~n", [LocatedPID, Name]),
+    lager:debug("Located PID: ~p from Name: ~p", [LocatedPID, Name]),
     {ok, LocatedPID};
 init([PID]) when is_pid(PID) ->
     {ok, PID}.
@@ -18,23 +18,18 @@ init([PID]) when is_pid(PID) ->
 -spec handle_info(Info :: term(), pid() | atom()) ->
       {noreply, pid() | atom()}.
 handle_info(Info, PID) ->
-    error_logger:info_msg("Handle Info. PID: ~p. Info:~p~n", [PID, Info]),
+    lager:debug("Handle Info. PID: ~p. Info: ~p", [PID, Info]),
     
     case is_pid(PID) of
         true -> PID ! Info;
         false ->
             case whereis(PID) of
-                undefined ->
-                    error_logger:error_msg("Error: ~p is not a valid PID.~n", [PID]);
-                LocatedPID when is_pid(LocatedPID) ->
-                    LocatedPID ! Info;
-                _ ->
-                    error_logger:error_msg("Error: ~p is not a valid PID.~n", [PID])
+                undefined -> ok;
+                Pid -> Pid ! Info
             end
     end,
-    
     {noreply, PID}.
 
--spec terminate(Reason :: any(), pid() | atom()) -> ok.
+-spec terminate(any(), pid() | atom()) -> ok.
 terminate(_Reason, _PID) ->
     ok.
