@@ -1,12 +1,17 @@
-
-
-# snatch #
+# snatch
 
 Copyright (c) 2017 Thiago Camargo
 
 __Authors:__ "Thiago Camargo" ([`barata7@gmail.com`](mailto:barata7@gmail.com)).
 
-[![License: Apache 2.0](https://img.shields.io/github/license/xmppjingle/snatch.svg)](https://raw.githubusercontent.com/xmppjingle/snatch/master/LICENSE)
+<p align="center">
+  <a href="https://www.erlang.org"><img src="https://img.shields.io/badge/Erlang%2FOTP-19%2B-red.svg" alt="Erlang/OTP 19+"></a>
+  <a href="https://raw.githubusercontent.com/xmppjingle/snatch/master/LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache-2.0"></a>
+  <a href="https://travis-ci.org/xmppjingle/snatch"><img src="https://travis-ci.org/xmppjingle/snatch.svg?branch=master" alt="Build Status"></a>
+  <a href="https://hex.pm/packages/snatch"><img src="https://img.shields.io/badge/hex.pm-unpublished-lightgrey.svg" alt="Hex unpublished"></a>
+  <a href="#testing"><img src="https://img.shields.io/badge/claws-7%20transports-blueviolet.svg" alt="7 transports"></a>
+  <a href="https://github.com/xmppjingle/rnatch"><img src="https://img.shields.io/badge/Rust%20port-rnatch-orange.svg" alt="Rust port: rnatch"></a>
+</p>
 
 Lightweight XMPP Client Library for Erlang. This library is intended to handle client connections in an agnostic way. The system is launched using the snatch process and configuring as many claws as you need.
 
