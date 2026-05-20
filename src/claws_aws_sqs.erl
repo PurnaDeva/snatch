@@ -50,13 +50,14 @@ start_link(ServerName, AwsConfig, MaxNumberOfMessages, PollInterval, QueueNames,
 
 %% Callbacks
 init([QueueName]) ->
-    AwsConfig =
+    AwsConfig0 =
         try erlcloud_aws:auto_config() of
             {ok, Config} -> Config;
             _ -> erlcloud_aws:default_config()
         catch _:_ ->
             erlcloud_aws:default_config()
         end,
+    AwsConfig = configure_region_from_url(AwsConfig0, QueueName),
     init([AwsConfig, QueueName]);
 
 init([AwsConfig, QueueName]) ->
@@ -153,9 +154,25 @@ process_body(Body) ->
     end.
 
 try_parse_json(Body, XMLParseError) ->
-    case jsone:try_decode(Body, []) of 
+    case jsone:try_decode(Body, []) of
         {ok, Packet, _} ->
             {ok, Packet};
         {error, {Reason, Stacktrace}} ->
-            {error, {parsing_failed, [{xml_error, XMLParseError}, {json_error, {Reason, Stacktrace}}]}}    
+            {error, {parsing_failed, [{xml_error, XMLParseError}, {json_error, {Reason, Stacktrace}}]}}
+    end.
+
+%% Pin the SQS endpoint host to the queue URL's region so erlcloud signs
+%% the request for that region instead of falling back to its us-east-1
+%% default when no AWS_REGION / aws_region env is configured.
+configure_region_from_url(AwsConfig, QueueUrl) ->
+    case uri_string:parse(QueueUrl) of
+        #{host := Host} when Host =/= "" ->
+            HostStr = case is_binary(Host) of
+                          true  -> binary_to_list(Host);
+                          false -> Host
+                      end,
+            Region = erlcloud_aws:aws_region_from_host(HostStr),
+            erlcloud_aws:service_config(<<"sqs">>, Region, AwsConfig);
+        _ ->
+            AwsConfig
     end.
