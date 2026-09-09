@@ -72,9 +72,9 @@ init([AwsConfig, MaxNumberOfMessages, PollInterval, QueueName, SqsModule, WaitTi
         sqs_module = SqsModule,
         wait_timeout_seconds = WaitTimeoutSeconds
     },
-    case string:is_empty(QueueName) of
-        false -> erlang:send_after(PollInterval, self(), poll_sqs);
-        true -> ok
+    case has_queue(QueueName) of
+        true -> erlang:send_after(PollInterval, self(), poll_sqs);
+        false -> ok
     end,
     {ok, State}.
 
@@ -164,9 +164,10 @@ try_parse_json(Body, XMLParseError) ->
 %% Pin the SQS endpoint host to the queue URL's region so erlcloud signs
 %% the request for that region instead of falling back to its us-east-1
 %% default when no AWS_REGION / aws_region env is configured.
-configure_region_from_url(AwsConfig, QueueUrl) ->
+configure_region_from_url(AwsConfig, QueueUrl)
+  when is_list(QueueUrl) orelse is_binary(QueueUrl) ->
     case uri_string:parse(QueueUrl) of
-        #{host := Host} when Host =/= "" ->
+        #{host := Host} when Host =/= "", Host =/= <<>> ->
             HostStr = case is_binary(Host) of
                           true  -> binary_to_list(Host);
                           false -> Host
@@ -175,4 +176,14 @@ configure_region_from_url(AwsConfig, QueueUrl) ->
             erlcloud_aws:service_config(<<"sqs">>, Region, AwsConfig);
         _ ->
             AwsConfig
-    end.
+    end;
+configure_region_from_url(AwsConfig, _QueueUrl) ->
+    AwsConfig.
+
+%% A claw may be started with no queue configured for this environment. It
+%% then sits idle instead of polling a queue that does not exist. Anything
+%% that is not chardata (notably `undefined') counts as no queue.
+has_queue(QueueName) when is_list(QueueName) orelse is_binary(QueueName) ->
+    not string:is_empty(QueueName);
+has_queue(_QueueName) ->
+    false.

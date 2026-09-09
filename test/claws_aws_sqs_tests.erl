@@ -24,6 +24,9 @@ setup() ->
 
 stop(Pid) ->
     claws_aws_sqs_tests_mocks:stop(),
+    %% start_link/7 links the claw to the test process, so the exit signal
+    %% would otherwise kill the runner and cancel every later test.
+    unlink(Pid),
     exit(Pid, shutdown),
     application:stop(snatch).
 
@@ -68,3 +71,43 @@ recv_all(Data) ->
     after
         ?RECV_WAIT -> Data
     end.
+
+%% A claw may legitimately be started with no queue configured. init/1 must
+%% survive that instead of crashing and taking down the caller's supervisor.
+claws_aws_sqs_missing_queue_test_() ->
+    [
+        {"undefined queue, no explicit config",
+         ?_assertMatch({ok, _}, claws_aws_sqs:init([undefined]))},
+        {"undefined queue, explicit config",
+         ?_assertMatch({ok, _}, claws_aws_sqs:init([#aws_config{}, undefined]))},
+        {"empty string queue",
+         ?_assertMatch({ok, _}, claws_aws_sqs:init([""]))},
+        {"empty binary queue",
+         ?_assertMatch({ok, _}, claws_aws_sqs:init([<<>>]))},
+        {"undefined queue schedules no poll",
+         ?_test(begin
+            {ok, _} = claws_aws_sqs:init(
+                [#aws_config{}, 1, 10, undefined, claws_aws_sqs_tests_mocks, 20]),
+            ?assertEqual(timeout,
+                receive poll_sqs -> got_poll after 200 -> timeout end)
+         end)},
+        {"configured queue still schedules a poll",
+         ?_test(begin
+            {ok, _} = claws_aws_sqs:init(
+                [#aws_config{}, 1, 10, "a-queue", claws_aws_sqs_tests_mocks, 20]),
+            ?assertEqual(got_poll,
+                receive poll_sqs -> got_poll after 200 -> timeout end)
+         end)}
+    ].
+
+%% The region must still be derived from a well-formed queue URL.
+claws_aws_sqs_region_from_url_test_() ->
+    Url = "https://sqs.us-west-2.amazonaws.com/123456789012/my-queue",
+    {ok, State} = claws_aws_sqs:init([Url]),
+    %% #state{} is private to the module; aws_config is its first field.
+    %% The match guards against that field order silently changing.
+    #aws_config{} = Config = element(2, State),
+    [
+        {"sqs host pinned to the queue's region",
+         ?_assertEqual("sqs.us-west-2.amazonaws.com", Config#aws_config.sqs_host)}
+    ].
