@@ -24,26 +24,30 @@
     aws_config = "" :: erlcloud_aws:aws_config(),
     max_number_of_messages = 1 :: integer(),
     poll_interval = 21000 :: integer(),
-    queue :: string(),
+    queue :: queue_name(),
     sqs_module :: module(),
     wait_timeout_seconds = 20 :: integer()
 }).
 
 -type server_name() :: {local, atom()} | {global, term()} | {via, module(), term()}.
 
--spec start_link(string()) -> {ok, pid()}.
+%% A claw may be started with no queue configured for this environment, in
+%% which case the queue name is `undefined' or empty rather than a URL.
+-type queue_name() :: string() | binary() | undefined.
+
+-spec start_link(queue_name()) -> {ok, pid()}.
 start_link(QueueName) ->
     gen_server:start_link(?MODULE, [QueueName], []).
 
--spec start_link(server_name(), string()) -> {ok, pid()}.
+-spec start_link(server_name(), queue_name()) -> {ok, pid()}.
 start_link(ServerName, QueueName) ->
     gen_server:start_link(ServerName, ?MODULE, [QueueName], []).
 
--spec start_link(server_name(), aws_config(), string()) -> {ok, pid()}.
+-spec start_link(server_name(), aws_config(), queue_name()) -> {ok, pid()}.
 start_link(ServerName, AwsConfig, QueueName) ->
     gen_server:start_link(ServerName, ?MODULE, [AwsConfig, QueueName], []).
 
--spec start_link(server_name(), aws_config(), integer(), integer(), string(), module(), integer()) -> {ok, pid()}.
+-spec start_link(server_name(), aws_config(), integer(), integer(), queue_name(), module(), integer()) -> {ok, pid()}.
 start_link(ServerName, AwsConfig, MaxNumberOfMessages, PollInterval, QueueNames, SqsModule, WaitTimeoutSeconds) ->
     Args = [AwsConfig, MaxNumberOfMessages, PollInterval, QueueNames, SqsModule, WaitTimeoutSeconds],
     gen_server:start_link(ServerName, ?MODULE, Args, []).
@@ -72,7 +76,7 @@ init([AwsConfig, MaxNumberOfMessages, PollInterval, QueueName, SqsModule, WaitTi
         sqs_module = SqsModule,
         wait_timeout_seconds = WaitTimeoutSeconds
     },
-    case has_queue(QueueName) of
+    case queue_configured(QueueName) of
         true -> erlang:send_after(PollInterval, self(), poll_sqs);
         false -> ok
     end,
@@ -164,9 +168,16 @@ try_parse_json(Body, XMLParseError) ->
 %% Pin the SQS endpoint host to the queue URL's region so erlcloud signs
 %% the request for that region instead of falling back to its us-east-1
 %% default when no AWS_REGION / aws_region env is configured.
-configure_region_from_url(AwsConfig, QueueUrl)
-  when is_list(QueueUrl) orelse is_binary(QueueUrl) ->
-    case uri_string:parse(QueueUrl) of
+configure_region_from_url(AwsConfig, QueueUrl) ->
+    case queue_configured(QueueUrl) of
+        false -> AwsConfig;
+        true -> region_config_from_url(AwsConfig, QueueUrl)
+    end.
+
+%% Anything that is not a well-formed URL leaves the config untouched. A queue
+%% name is not guaranteed to be a URL, and a bad one must not crash init/1.
+region_config_from_url(AwsConfig, QueueUrl) ->
+    try uri_string:parse(QueueUrl) of
         #{host := Host} when Host =/= "", Host =/= <<>> ->
             HostStr = case is_binary(Host) of
                           true  -> binary_to_list(Host);
@@ -176,14 +187,15 @@ configure_region_from_url(AwsConfig, QueueUrl)
             erlcloud_aws:service_config(<<"sqs">>, Region, AwsConfig);
         _ ->
             AwsConfig
-    end;
-configure_region_from_url(AwsConfig, _QueueUrl) ->
-    AwsConfig.
+    catch _:_ ->
+        AwsConfig
+    end.
 
-%% A claw may be started with no queue configured for this environment. It
-%% then sits idle instead of polling a queue that does not exist. Anything
-%% that is not chardata (notably `undefined') counts as no queue.
-has_queue(QueueName) when is_list(QueueName) orelse is_binary(QueueName) ->
+%% True when a queue name was actually configured for this claw. A list or a
+%% binary is taken as a name; anything else -- notably `undefined', which is
+%% what an unset environment variable yields -- means no queue, and the claw
+%% then sits idle instead of polling one that does not exist.
+queue_configured(QueueName) when is_list(QueueName); is_binary(QueueName) ->
     not string:is_empty(QueueName);
-has_queue(_QueueName) ->
+queue_configured(_QueueName) ->
     false.

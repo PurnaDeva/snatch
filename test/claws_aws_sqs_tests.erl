@@ -74,40 +74,55 @@ recv_all(Data) ->
 
 %% A claw may legitimately be started with no queue configured. init/1 must
 %% survive that instead of crashing and taking down the caller's supervisor.
+%% The single-argument cases go through erlcloud_aws:auto_config/0, so they
+%% carry a timeout: it reads instance metadata and can be slow off-host.
 claws_aws_sqs_missing_queue_test_() ->
     [
         {"undefined queue, no explicit config",
-         ?_assertMatch({ok, _}, claws_aws_sqs:init([undefined]))},
+         {timeout, 30, ?_assertMatch({ok, _}, claws_aws_sqs:init([undefined]))}},
+        {"a queue name that is not a URL",
+         {timeout, 30, ?_assertMatch({ok, _}, claws_aws_sqs:init([[an_atom]]))}},
         {"undefined queue, explicit config",
          ?_assertMatch({ok, _}, claws_aws_sqs:init([#aws_config{}, undefined]))},
         {"empty string queue",
-         ?_assertMatch({ok, _}, claws_aws_sqs:init([""]))},
+         ?_assertMatch({ok, _}, claws_aws_sqs:init([#aws_config{}, ""]))},
         {"empty binary queue",
-         ?_assertMatch({ok, _}, claws_aws_sqs:init([<<>>]))},
+         ?_assertMatch({ok, _}, claws_aws_sqs:init([#aws_config{}, <<>>]))},
         {"undefined queue schedules no poll",
-         ?_test(begin
-            {ok, _} = claws_aws_sqs:init(
-                [#aws_config{}, 1, 10, undefined, claws_aws_sqs_tests_mocks, 20]),
-            ?assertEqual(timeout,
-                receive poll_sqs -> got_poll after 200 -> timeout end)
-         end)},
+         ?_test(assert_poll(undefined, no_poll))},
         {"configured queue still schedules a poll",
-         ?_test(begin
-            {ok, _} = claws_aws_sqs:init(
-                [#aws_config{}, 1, 10, "a-queue", claws_aws_sqs_tests_mocks, 20]),
-            ?assertEqual(got_poll,
-                receive poll_sqs -> got_poll after 200 -> timeout end)
-         end)}
+         ?_test(assert_poll("a-queue", poll))}
     ].
 
 %% The region must still be derived from a well-formed queue URL.
 claws_aws_sqs_region_from_url_test_() ->
     Url = "https://sqs.us-west-2.amazonaws.com/123456789012/my-queue",
-    {ok, State} = claws_aws_sqs:init([Url]),
-    %% #state{} is private to the module; aws_config is its first field.
-    %% The match guards against that field order silently changing.
-    #aws_config{} = Config = element(2, State),
-    [
-        {"sqs host pinned to the queue's region",
-         ?_assertEqual("sqs.us-west-2.amazonaws.com", Config#aws_config.sqs_host)}
-    ].
+    {"sqs host pinned to the queue's region",
+     {timeout, 30,
+      ?_test(begin
+         {ok, State} = claws_aws_sqs:init([Url]),
+         Config = aws_config_of(State),
+         ?assertEqual("sqs.us-west-2.amazonaws.com", Config#aws_config.sqs_host)
+      end)}}.
+
+%% Utils for the two groups above
+%%
+%% init/6 schedules poll_sqs into the calling process, so drain the mailbox on
+%% both sides: a stray timer would otherwise leak into whichever test runs next.
+assert_poll(QueueName, Expected) ->
+    ok = flush_polls(),
+    {ok, _} = claws_aws_sqs:init(
+        [#aws_config{}, 1, 10, QueueName, claws_aws_sqs_tests_mocks, 20]),
+    Got = receive poll_sqs -> poll after 200 -> no_poll end,
+    ok = flush_polls(),
+    ?assertEqual(Expected, Got).
+
+flush_polls() ->
+    receive poll_sqs -> flush_polls() after 0 -> ok end.
+
+%% #state{} is private to claws_aws_sqs. Find the aws_config by shape rather
+%% than by tuple position, so reordering that record cannot quietly make this
+%% assert against the wrong field.
+aws_config_of(State) ->
+    [Config] = [E || E <- tuple_to_list(State), is_record(E, aws_config)],
+    Config.
