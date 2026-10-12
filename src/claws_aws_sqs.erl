@@ -20,13 +20,23 @@
 %% claws callbacks
 -export([send/2, send/3]).
 
+%% A claw drains its queue: a full batch per receive, a long poll that returns
+%% as soon as a message arrives, and the next receive as soon as the last one
+%% returns. A failed receive or delete is retried after a pause rather than crashing the
+%% claw, so a lasting AWS fault cannot restart it fast enough to take its
+%% supervisor down.
+-define(DEFAULT_MAX_NUMBER_OF_MESSAGES, 10).
+-define(DEFAULT_POLL_INTERVAL, 0).
+-define(DEFAULT_WAIT_TIMEOUT_SECONDS, 20).
+-define(ERROR_BACKOFF, 20000).
+
 -record(state, {
     aws_config = "" :: erlcloud_aws:aws_config(),
-    max_number_of_messages = 1 :: integer(),
-    poll_interval = 21000 :: integer(),
+    max_number_of_messages = ?DEFAULT_MAX_NUMBER_OF_MESSAGES :: integer(),
+    poll_interval = ?DEFAULT_POLL_INTERVAL :: integer(),
     queue :: queue_name(),
     sqs_module :: module(),
-    wait_timeout_seconds = 20 :: integer()
+    wait_timeout_seconds = ?DEFAULT_WAIT_TIMEOUT_SECONDS :: integer()
 }).
 
 -type server_name() :: {local, atom()} | {global, term()} | {via, module(), term()}.
@@ -65,7 +75,8 @@ init([QueueName]) ->
     init([AwsConfig, QueueName]);
 
 init([AwsConfig, QueueName]) ->
-    init([AwsConfig, 1, 21000, QueueName, erlcloud_sqs, 20]);
+    init([AwsConfig, ?DEFAULT_MAX_NUMBER_OF_MESSAGES, ?DEFAULT_POLL_INTERVAL,
+          QueueName, erlcloud_sqs, ?DEFAULT_WAIT_TIMEOUT_SECONDS]);
 
 init([AwsConfig, MaxNumberOfMessages, PollInterval, QueueName, SqsModule, WaitTimeoutSeconds]) ->
     State = #state{
@@ -111,9 +122,19 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(poll_sqs, #state{aws_config = AwsConfig, max_number_of_messages = MaxNumberOfMessages, poll_interval = PollInterval, queue = Queue, sqs_module = SqsModule, wait_timeout_seconds = WaitTimeoutSeconds} = State) ->
-    Messages = SqsModule:receive_message(Queue, all, MaxNumberOfMessages, none, WaitTimeoutSeconds, AwsConfig),
-    process_messages(Messages, SqsModule, Queue, AwsConfig),
-    erlang:send_after(PollInterval, self(), poll_sqs),
+    NextPoll =
+        try
+            Messages = SqsModule:receive_message(Queue, all, MaxNumberOfMessages, none, WaitTimeoutSeconds, AwsConfig),
+            process_messages(Messages, SqsModule, Queue, AwsConfig),
+            PollInterval
+        catch Class:Reason ->
+            %% A message handed on but not deleted comes back after its
+            %% visibility timeout: SQS is at-least-once either way.
+            lager:error("SQS poll of ~p failed, retrying in ~p ms: ~p:~p",
+                        [Queue, ?ERROR_BACKOFF, Class, Reason]),
+            ?ERROR_BACKOFF
+        end,
+    erlang:send_after(NextPoll, self(), poll_sqs),
     {noreply, State};
 
 handle_info(_Info, State) ->
