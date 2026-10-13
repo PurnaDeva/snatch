@@ -186,10 +186,84 @@ claws_aws_sqs_poll_test_() ->
          end)}
     ].
 
+%% Instance-role credentials expire after a few hours. A claw that fetched its
+%% own credentials must fetch them again rather than sign with an expired token
+%% forever; a claw given an explicit config keeps it.
+claws_aws_sqs_credentials_test_() ->
+    [
+        {"credentials about to expire are fetched again before the receive",
+         ?_test(begin
+            put(mock_receive, fun() -> [{messages, []}] end),
+            {noreply, _} = poll_with(credentials(expires_in(60))),
+            ?assertEqual("key2", (get(last_config))#aws_config.access_key_id),
+            ok = flush_polls()
+         end)},
+        {"credentials far from expiry are kept",
+         ?_test(begin
+            put(mock_receive, fun() -> [{messages, []}] end),
+            {noreply, _} = poll_with(credentials(expires_in(3600))),
+            ?assertEqual("key1", (get(last_config))#aws_config.access_key_id),
+            ?assertEqual(1, get(fetches)),
+            ok = flush_polls()
+         end)},
+        {"a failed receive fetches credentials again for the next poll",
+         ?_test(begin
+            put(mock_receive, fun() -> erlang:error(expired_token()) end),
+            {noreply, State} = poll_with(credentials(expires_in(3600))),
+            ?assertEqual("key2", (aws_config_of(State))#aws_config.access_key_id),
+            ok = flush_polls()
+         end)},
+        {"a refetch that yields no credentials keeps the old ones",
+         ?_test(begin
+            put(mock_receive, fun() -> erlang:error(expired_token()) end),
+            put(fetches, 0),
+            Fetch = fun() ->
+                        case put(fetches, get(fetches) + 1) of
+                            0 -> #aws_config{access_key_id = "key1", expiration = expires_in(3600)};
+                            _ -> #aws_config{}
+                        end
+                    end,
+            {noreply, State} = poll_with(Fetch),
+            ?assertEqual("key1", (aws_config_of(State))#aws_config.access_key_id),
+            ok = flush_polls()
+         end)},
+        {"an explicit config is never replaced",
+         ?_test(begin
+            put(mock_receive, fun() -> erlang:error(expired_token()) end),
+            Config = #aws_config{access_key_id = "static", expiration = expires_in(0)},
+            {noreply, State} = poll_with(Config),
+            ?assertEqual(Config, aws_config_of(State)),
+            ok = flush_polls()
+         end)}
+    ].
+
+%% A credentials fetch that hands out "key1", "key2", ... and counts its calls.
+credentials(Expiration) ->
+    put(fetches, 0),
+    fun() ->
+        N = get(fetches) + 1,
+        put(fetches, N),
+        #aws_config{access_key_id = "key" ++ integer_to_list(N), expiration = Expiration}
+    end.
+
+expires_in(Seconds) ->
+    erlang:system_time(second) + Seconds.
+
+expired_token() ->
+    {aws_error, {http_error, 403, "Forbidden", <<"<Code>ExpiredToken</Code>">>}}.
+
+poll_with(ConfigOrFetch) ->
+    ok = flush_polls(),
+    {ok, State} = with_flushed_polls(fun() ->
+        claws_aws_sqs:init([ConfigOrFetch, 10, 0, "a-queue", ?MODULE, 20])
+    end),
+    claws_aws_sqs:handle_info(poll_sqs, State).
+
 %% Mock SQS module for the poll tests. handle_info/2 runs in the test process,
 %% so the process dictionary is shared with the test that set it up.
-receive_message(Queue, all, Max, none, Wait, _AwsConfig) ->
+receive_message(Queue, all, Max, none, Wait, AwsConfig) ->
     put(last_receive, {receive_message, Queue, Max, Wait}),
+    put(last_config, AwsConfig),
     (get(mock_receive))().
 
 delete_message(_Queue, Receipt, _AwsConfig) ->
